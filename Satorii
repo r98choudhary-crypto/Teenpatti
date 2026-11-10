@@ -1,0 +1,329 @@
+<!DOCTYPE html>
+<html lang="hi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Teen Patti Hisab Kitab</title>
+    <style>
+        :root {
+            --primary: #1b4d3e;
+            --accent: #d4af37;
+            --bg: #121212;
+            --card-bg: #1e1e1e;
+            --text: #ffffff;
+            --danger: #cf6679;
+        }
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background-color: var(--bg);
+            color: var(--text);
+            margin: 0;
+            padding: 10px;
+        }
+        .container {
+            max-width: 450px;
+            margin: 0 auto;
+            background: var(--card-bg);
+            padding: 15px;
+            border-radius: 12px;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.5);
+        }
+        h2, h3 { text-align: center; color: var(--accent); margin-top: 5px; }
+        .form-group { margin-bottom: 12px; }
+        label { display: block; font-size: 13px; margin-bottom: 4px; color: #aaa; }
+        input, select {
+            width: 100%;
+            padding: 10px;
+            background: #2c2c2c;
+            border: 1px solid #444;
+            color: white;
+            border-radius: 6px;
+            box-sizing: border-box;
+        }
+        button {
+            width: 100%;
+            padding: 11px;
+            background: var(--accent);
+            color: #121212;
+            border: none;
+            font-weight: bold;
+            border-radius: 6px;
+            cursor: pointer;
+            margin-top: 5px;
+        }
+        button:active { opacity: 0.8; }
+        .btn-danger { background: var(--danger); color: white; }
+        .btn-secondary { background: #444; color: white; }
+        .table-box {
+            background: var(--primary);
+            padding: 12px;
+            border-radius: 8px;
+            text-align: center;
+            margin: 10px 0;
+            border: 2px solid var(--accent);
+        }
+        .player-card {
+            background: #2a2a2a;
+            padding: 10px;
+            border-radius: 6px;
+            margin-bottom: 8px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            border-left: 4px solid var(--accent);
+        }
+        .player-card.active-turn { border-left-color: #03dac6; background: #223835; }
+        .player-card.packed { opacity: 0.4; border-left-color: var(--danger); }
+        .hidden { display: none !important; }
+        .flex-row { display: flex; gap: 8px; }
+        .badge { font-size: 11px; padding: 2px 6px; background: #444; border-radius: 4px; }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <h2>🃏 Teen Patti Manager</h2>
+
+    <!-- Setup Screen -->
+    <div id="setup-screen">
+        <h3>Players Jodo</h3>
+        <div class="form-group">
+            <label>Boot Amount (Game Entry Fee per round):</label>
+            <input type="number" id="bootAmount" value="10">
+        </div>
+        <div class="form-group">
+            <label>Player Ka Naam:</label>
+            <input type="text" id="playerName" placeholder="Naam likho...">
+        </div>
+        <button onclick="addPlayer()">Player Add Karo</button>
+        <div id="playerList" style="margin-top: 10px;"></div>
+        <button onclick="startGame()" style="background: #03dac6; color: black; margin-top: 15px;">Game Shuru Karo</button>
+    </div>
+
+    <!-- Game Screen -->
+    <div id="game-screen" class="hidden">
+        <div class="table-box">
+            <div style="font-size: 14px;">Total Pot: <span id="potDisplay" style="font-size: 18px; color: var(--accent); font-weight: bold;">0</span></div>
+            <div style="font-size: 12px; margin-top: 4px;">Current Stake (Chal): <span id="stakeDisplay">10</span> | Turn: <span id="turnDisplay" style="color: #03dac6; font-weight: bold;">-</span></div>
+        </div>
+
+        <div id="gamePlayerList"></div>
+
+        <div id="action-controls" style="margin-top: 15px;">
+            <div class="flex-row">
+                <button onclick="playTurn('blind')">Blind Chalo</button>
+                <button onclick="playTurn('seen')" style="background: #03dac6;">Seen Chalo (2x)</button>
+            </div>
+            <div class="flex-row">
+                <button onclick="packPlayer()" class="btn-danger">Pack (Fold)</button>
+                <button onclick="showCards()" id="showBtn" class="btn-secondary" disabled>Show</button>
+            </div>
+        </div>
+        <button onclick="endGameSession()" class="btn-danger" style="margin-top: 20px;">Game Session Khatam & Hisab Dekho</button>
+    </div>
+
+    <!-- Ledger / Hisab Screen -->
+    <div id="ledger-screen" class="hidden">
+        <h3>📊 Final Hisab Kitab (Profit / Loss)</h3>
+        <div id="ledgerList"></div>
+        <button onclick="location.reload()" style="margin-top: 15px;">Naya Game Shuru Karo</button>
+    </div>
+</div>
+
+<script>
+    let players = [];
+    let bootAmount = 10;
+    let currentPot = 0;
+    let currentStake = 10;
+    let currentTurnIndex = 0;
+    let lastPlayerType = 'blind'; // 'blind' or 'seen'
+
+    function addPlayer() {
+        let nameInput = document.getElementById('playerName');
+        let name = nameInput.value.trim();
+        if(!name) return alert("Naam daalo!");
+        
+        players.push({
+            name: name,
+            balance: 0, // Net profit/loss
+            roundContributed: 0,
+            isPacked: false,
+            isSeen: false
+        });
+        nameInput.value = '';
+        renderPlayerList();
+    }
+
+    function renderPlayerList() {
+        let html = '';
+        players.forEach((p, index) => {
+            html += `<div class="player-card"><span><b>${p.name}</b></span> <button onclick="removePlayer(${index})" style="width: auto; padding: 2px 8px; background: var(--danger); font-size: 11px;">Hatao</button></div>`;
+        });
+        document.getElementById('playerList').innerHTML = html;
+    }
+
+    function removePlayer(index) {
+        players.splice(index, 1);
+        renderPlayerList();
+    }
+
+    function startGame() {
+        if(players.length < 2) return alert("Kam se kam 2 players hone chahiye!");
+        bootAmount = parseFloat(document.getElementById('bootAmount').value) || 10;
+        
+        // Deduct boot amount for first round
+        currentPot = 0;
+        players.forEach(p => {
+            p.roundContributed = bootAmount;
+            p.balance -= bootAmount;
+            currentPot += bootAmount;
+            p.isPacked = false;
+            p.isSeen = false;
+        });
+
+        currentStake = bootAmount;
+        currentTurnIndex = 0;
+        lastPlayerType = 'blind';
+
+        document.getElementById('setup-screen').classList.add('hidden');
+        document.getElementById('game-screen').classList.remove('hidden');
+        updateGameUI();
+    }
+
+    function updateGameUI() {
+        document.getElementById('potDisplay').innerText = currentPot;
+        document.getElementById('stakeDisplay').innerText = currentStake;
+
+        // Skip packed players for turn
+        let activePlayers = players.filter(p => !p.isPacked);
+        if(activePlayers.length === 1) {
+            declareWinner(activePlayers[0]);
+            return;
+        }
+
+        while(players[currentTurnIndex].isPacked) {
+            currentTurnIndex = (currentTurnIndex + 1) % players.length;
+        }
+
+        document.getElementById('turnDisplay').innerText = players[currentTurnIndex].name + (players[currentTurnIndex].isSeen ? " (Seen)" : " (Blind)");
+
+        let html = '';
+        players.forEach((p, idx) => {
+            let turnClass = (idx === currentTurnIndex) ? 'active-turn' : '';
+            let packClass = p.isPacked ? 'packed' : '';
+            html += `
+                <div class="player-card ${turnClass} ${packClass}">
+                    <div>
+                        <b>${p.name}</b><br>
+                        <span class="badge">${p.isPacked ? 'Pack' : (p.isSeen ? 'Seen' : 'Blind')}</span>
+                    </div>
+                    <div>Lagaya: ₹${p.roundContributed}</div>
+                </div>
+            `;
+        });
+        document.getElementById('gamePlayerList').innerHTML = html;
+
+        // Check Show condition (Only 2 active players left)
+        let activeCount = players.filter(p => !p.isPacked).length;
+        let showBtn = document.getElementById('showBtn');
+        if(activeCount === 2) {
+            showBtn.disabled = false;
+            showBtn.classList.remove('btn-secondary');
+            showBtn.style.background = '#ff9800';
+        } else {
+            showBtn.disabled = true;
+            showBtn.classList.add('btn-secondary');
+        }
+    }
+
+    function playTurn(type) {
+        let player = players[currentTurnIndex];
+        let amount = currentStake;
+
+        if(type === 'seen') {
+            player.isSeen = true;
+            if(lastPlayerType === 'blind') {
+                amount = currentStake * 2; // Seen after blind is double
+                currentStake = amount;
+            } else {
+                amount = currentStake; // Seen after seen is same
+            }
+            lastPlayerType = 'seen';
+        } else {
+            // Blind play
+            amount = currentStake;
+            lastPlayerType = 'blind';
+        }
+
+        player.roundContributed += amount;
+        player.balance -= amount;
+        currentPot += amount;
+
+        nextTurn();
+    }
+
+    function packPlayer() {
+        players[currentTurnIndex].isPacked = true;
+        nextTurn();
+    }
+
+    function nextTurn() {
+        let activePlayers = players.filter(p => !p.isPacked);
+        if(activePlayers.length === 1) {
+            declareWinner(activePlayers[0]);
+            return;
+        }
+
+        do {
+            currentTurnIndex = (currentTurnIndex + 1) % players.length;
+        } while(players[currentTurnIndex].isPacked);
+
+        updateGameUI();
+    }
+
+    function showCards() {
+        let active = players.filter(p => !p.isPacked);
+        let winnerName = prompt(`Show! Jeetne wale ka naam likho (${active[0].name} ya ${active[1].name}):`);
+        let winner = players.find(p => p.name.toLowerCase() === winnerName?.toLowerCase());
+        if(winner) {
+            declareWinner(winner);
+        } else {
+            alert("Sahi naam daalo!");
+        }
+    }
+
+    function declareWinner(winner) {
+        winner.balance += currentPot;
+        alert(`🎉 ${winner.name} jeet gaye! Total Pot: ₹${currentPot} inke paas gaya.`);
+        
+        // Reset for next round
+        currentPot = 0;
+        players.forEach(p => {
+            p.roundContributed = bootAmount;
+            p.balance -= bootAmount;
+            currentPot += bootAmount;
+            p.isPacked = false;
+            p.isSeen = false;
+        });
+        currentStake = bootAmount;
+        currentTurnIndex = 0;
+        lastPlayerType = 'blind';
+        updateGameUI();
+    }
+
+    function endGameSession() {
+        document.getElementById('game-screen').classList.add('hidden');
+        document.getElementById('ledger-screen').classList.remove('hidden');
+        
+        let html = '';
+        players.forEach(p => {
+            let color = p.balance >= 0 ? '#4caf50' : '#f44336';
+            let statusText = p.balance >= 0 ? `Jeete: +₹${p.balance}` : `Hare: -₹${Math.abs(p.balance)}`;
+            html += `<div class="player-card"><b>${p.name}</b> <span style="color: ${color}; font-weight: bold;">${statusText}</span></div>`;
+        });
+        document.getElementById('ledgerList').innerHTML = html;
+    }
+</script>
+
+</body>
+</html>
